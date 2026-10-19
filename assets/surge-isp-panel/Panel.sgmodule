@@ -1,0 +1,23 @@
+#!name=Unlock & IP Risk Panel
+#!desc=流媒体 & AI 解锁检测 + IP 风险检测（Netflix/Disney+/YouTube/ChatGPT/Claude/Cursor/IP Risk/ISP）
+#!category=Panel
+
+[Script]
+netflix_check = type=generic, script-path=https://cdn.jsdelivr.net/gh/dler-io/Rules@main/Surge/Surge%204/Script/netflix_check.js, argument=title=Netflix
+disney_check = type=generic, script-path=https://cdn.jsdelivr.net/gh/dler-io/Rules@main/Surge/Surge%204/Script/disney_check.js, argument=title=Disney Plus
+youtube_check = type=generic, script-path=https://cdn.jsdelivr.net/gh/dler-io/Rules@main/Surge/Surge%204/Script/youtube_check.js, argument=title=YouTube Premium
+chatgpt_check = type=generic, script-path=https://cdn.jsdelivr.net/gh/dler-io/Rules@main/Surge/Surge%204/Script/chatgpt_check.js, argument=icon=lasso.and.sparkles&iconerr=xmark.seal.fill&icon-color=#336FA9&iconerr-color=#D65C51
+claude_detect = type=generic, script-path=https://cdn.jsdelivr.net/gh/jandyx/Rules@main/Surge/Script/claude_detect.js, argument=title=Claude
+cursor_check = type=generic, script-path=https://cdn.jsdelivr.net/gh/jandyx/Rules@main/Surge/Script/cursor_check.js, argument=title=Cursor
+ip_risk_check = type=generic, timeout=15, script-path=https://cdn.jsdelivr.net/gh/jandyx/Rules@main/Surge/Script/ip_risk_check.js?v=2, argument=title=IP Risk
+isp_check = type=generic, timeout=30, script-path=https://cdn.jsdelivr.net/gh/jandyx/Rules@main/Surge/Script/isp_check.js, argument=title=ISP&policy=Custom-ISP
+
+[Panel]
+netflix_check = script-name=netflix_check, update-interval=1800
+disney_check = script-name=disney_check, update-interval=1800
+youtube_check = script-name=youtube_check, update-interval=1800
+chatgpt_check = script-name=chatgpt_check, update-interval=1800
+claude_detect = script-name=claude_detect, update-interval=1800
+cursor_check = script-name=cursor_check, update-interval=1800
+ip_risk_check = script-name=ip_risk_check, update-interval=1800
+isp_check = script-name=isp_check, update-interval=1800

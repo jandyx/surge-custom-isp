@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "default": "ISP-Example",
+  "entry_regex": "^🇺🇸",
+  "direct_ssids": ["My-Home-WiFi"],
+  "domains": ["claude.ai", "claude.com", "anthropic.com", "claudeusercontent.com"],
+  "nodes": [
+    {
+      "name": "ISP-Example",
+      "protocol": "socks5",
+      "server": "192.0.2.50",
+      "port": 1080,
+      "username": "REPLACE-LOCALLY",
+      "password": "REPLACE-LOCALLY",
+      "expected_ip": "192.0.2.50"
+    }
+  ]
+}
