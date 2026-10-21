@@ -44,6 +44,16 @@ class APIContracts(unittest.TestCase):
         self.assertEqual(args[0][:2],['curl','--disable'])
         self.assertNotIn('--location',args[0]);self.assertNotIn('shell',kw)
 
+    def test_headers_preserve_unicode_and_escape_quotes_and_backslashes(self):
+        key='clé"\\key';secret='密钥\\secret"'
+        with mock.patch.object(w.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout='{"proxies":[]}\n200')) as run:
+            w.API(key,secret).proxies()
+        config=run.call_args.kwargs['input']
+        for header in ('X-Api-Key: '+key,'X-Api-Secret: '+secret):
+            self.assertIn('header = '+json.dumps(header,ensure_ascii=False),config)
+        self.assertNotIn(key,str(run.call_args.args))
+        self.assertNotIn(secret,str(run.call_args.args))
+
     def test_no_purchase_or_unknown_write(self):
         api=w.API('key','secret')
         for path,payload in [('/order/execute',{}),('/proxies/1/change-protocol',{'newType':'HTTP'}),('/proxies',{})]:
@@ -121,14 +131,14 @@ class WizardContracts(unittest.TestCase):
         self.root=Path(self.tmp.name);self.config=self.root/'config/isp.json';self.state=self.root/'state'
         self.binding=dict(profile=str(self.root/'Provider-ISP.conf'),source=str(self.root/'Provider.conf'),target='Claude')
 
-    def run_wizard(self,dry=False):
-        api=mock.Mock();api.proxies.return_value=[proxy()]
+    def run_wizard(self,dry=False,confirm_effect=None,protocol="SOCKS5"):
+        api=mock.Mock();api.proxies.return_value=[proxy(protocol=protocol)]
         surge=mock.Mock();surge.status.return_value={'core-version':6008000}
         with mock.patch.object(w.sys,'platform','darwin'),mock.patch.object(w.sys.stdin,'isatty',return_value=True),\
              mock.patch.object(w.shutil,'which',return_value='/usr/bin/curl'),mock.patch.object(w.isp,'Surge',return_value=surge),\
              mock.patch.object(w,'profile_choices',return_value=[(Path('Provider.conf'),self.binding,SOURCE,['Claude'])]),\
              mock.patch.object(w.getpass,'getpass',side_effect=['key','secret']),mock.patch.object(w,'API',return_value=api),\
-             mock.patch.object(w,'choose',side_effect=[[0],0,0,0,[0]]),mock.patch.object(w,'confirm'),\
+             mock.patch.object(w,'choose',side_effect=[[0],0,0,0,[0]]),mock.patch.object(w,'confirm',side_effect=confirm_effect),\
              mock.patch.object(w.isp,'Manager'),mock.patch.object(w,'apply_local') as apply,redirect_stdout(io.StringIO()):
             w.wizard(self.config,self.state,dry)
         return apply,api
@@ -143,6 +153,17 @@ class WizardContracts(unittest.TestCase):
     def test_preview_no_write(self):
         apply,api=self.run_wizard(True);apply.assert_not_called();api.request.assert_not_called()
         self.assertFalse(self.config.exists());self.assertFalse(self.state.exists())
+
+    def test_declining_replacement_does_not_touch_remote_protocol(self):
+        cfg=w.isp.defaults();cfg.update(nodes=[w.to_node(proxy())],default='PC-ISP-1')
+        w.isp.save_json(self.config,cfg)
+        before=self.config.read_bytes()
+        with mock.patch.object(w,'ensure_socks5',return_value=[w.to_node(proxy())]) as ensure:
+            with self.assertRaisesRegex(w.Error,'replacement declined'):
+                self.run_wizard(confirm_effect=w.Error('replacement declined'),protocol='HTTP')
+            ensure.assert_not_called()
+        self.assertEqual(self.config.read_bytes(),before)
+        self.assertFalse(self.state.exists())
 
     def test_new_profile_preview_with_real_manager(self):
         source=self.root/'Provider.conf';source.write_text(SOURCE)

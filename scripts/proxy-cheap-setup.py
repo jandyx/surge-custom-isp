@@ -34,7 +34,7 @@ class API:
         lines = ['url = ' + json.dumps('https://api.proxy-cheap.com' + path)]
         for header in ('Accept: application/json', 'X-Api-Key: ' + self.key,
                        'X-Api-Secret: ' + self.secret):
-            lines.append('header = ' + json.dumps(header))
+            lines.append('header = ' + json.dumps(header, ensure_ascii=False))
         if payload is not None:
             lines += ['header = "Content-Type: application/json"',
                       'data = ' + json.dumps(json.dumps(payload))]
@@ -249,13 +249,13 @@ def wizard(config, state, dry_run=False):
     preview['default'] = planned[default]['name']
     isp.Manager(state, surge).apply(copy.deepcopy(binding), preview,
         initialize=not binding.get('fingerprint') or not binding.get('enabled'), dry_run=True)
-    nodes = planned if dry_run else ensure_socks5(api, selected)
-    imported = {n['name'] for n in nodes}
-    if any(n['name'] in imported for n in cfg['nodes']):
+    if any(n['name'] in planned_names for n in cfg['nodes']):
         if dry_run:
             print('[isp] Preview would update selected PC-ISP nodes by ID')
         else:
             confirm('Replace existing nodes with matching PC-ISP IDs? Other nodes will be preserved')
+    nodes = planned if dry_run else ensure_socks5(api, selected)
+    imported = {n['name'] for n in nodes}
     cfg['nodes'] = [n for n in cfg['nodes'] if n['name'] not in imported] + nodes
     cfg['default'] = nodes[default]['name']
     isp.validate_settings(cfg)
