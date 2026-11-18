@@ -341,5 +341,38 @@ old = script-name=old, update-interval=60
         self.assertFalse((self.root / 'inactive-modules').exists())
 
 
+class ProcessRoutingTests(unittest.TestCase):
+    def test_install_preserves_existing_files_and_rolls_back_on_shadowed_rules(self):
+        with tempfile.TemporaryDirectory() as folder, mock.patch.object(isp.time, "sleep"):
+            modules = Path(folder)
+            dest = modules / "claude-process-routing.sgmodule"
+            title = "Claude Process Routing"
+            surge = mock.Mock()
+            enabled = set()
+            surge.module_enabled.side_effect = enabled.__contains__
+            surge.module_enable.side_effect = enabled.add
+            surge.module_disable.side_effect = enabled.remove
+            source = {}
+            def data(*args):
+                if args[0] == "policy-group":
+                    return {"group": {"name": "Claude"}}
+                if args[0] == "module":
+                    return {"modules": []}
+                return {"rule-source": source}
+            surge.data.side_effect = data
+            with self.assertRaisesRegex(isp.Error, "precedence"):
+                isp.install_process_routing(surge, modules)
+            self.assertFalse(dest.exists())
+            self.assertFalse(enabled)
+            source["module"] = title
+            isp.install_process_routing(surge, modules)
+            self.assertEqual(isp.module_title(dest.read_text()), title)
+            self.assertIn(title, enabled)
+            dest.write_text("user customization")
+            with self.assertRaisesRegex(isp.Error, "overwrite"):
+                isp.install_process_routing(surge, modules)
+            self.assertEqual(dest.read_text(), "user customization")
+
+
 if __name__ == "__main__":
     unittest.main()

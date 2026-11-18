@@ -63,3 +63,6 @@ node --check assets/surge-isp-panel/isp_check.js
 
 测试不访问真实 Surge 或代理，不代表外部用户网络已实测。
 仓库未自行为原有代码或第三方资产授予新许可证；公开发布前需确认相应授权。
+
+可选：在已接入的 Profile 上运行 `make isp-process-routing`，然后在 Surge 的
+**Modules → Claude Process Routing** 中统一切换 Desktop 和 CLI 的[进程分流](docs/surge-isp.md#claude-desktop--cli-进程分流可选)。

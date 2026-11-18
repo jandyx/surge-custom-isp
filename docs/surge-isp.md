@@ -173,3 +173,16 @@ python3 -m unittest discover -s tests -p '*_test.py'
 参考：[分离配置](https://manual.nssurge.com/profile/format.html)、
 [策略组导入](https://manual.nssurge.com/policy-groups/policy-including.html)、
 [脚本 HTTP policy 参数](https://manual.nssurge.com/scripting/api.html)。
+
+## Claude Desktop / CLI 进程分流（可选）
+
+在已接入的 Profile 上运行一次 `make isp-process-routing`（验证需要支持
+`surge-cli rule match ... process-path=...` 的 Surge Mac）。安装后在
+**Modules → Claude Process Routing** 勾选或取消；不需要打开 Panel。
+开启时，本地名为 `claude` 的可执行文件及 `/Applications/Claude.app/` 内的程序
+跟随 Claude 组，即使请求的是非 Anthropic 域名。取消后恢复原有规则，
+不是强制直连。只作用于规则模式下已进入 Surge 的新连接，不接管终端或包外子进程。
+
+模块独立于机场订阅，日常同步不会重新开启它。生成的配置若绑定了不同名的目标组，
+用隐藏的单成员 `Claude` 组映射到该组；同名冲突时拒绝生成。切换到未接入、
+没有 `Claude` 组的原始 Profile 前应先关闭模块。

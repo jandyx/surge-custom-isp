@@ -71,6 +71,25 @@ class RenderTests(unittest.TestCase):
         with self.assertRaises(isp.Error):
             isp.render(isp.render(SOURCE, settings(), "Claude"), settings(), "Claude")
 
+    def test_process_module_alias_tracks_binding_across_subscription_updates(self):
+        source = SOURCE.replace("Claude", "🤖 AI")
+        for upstream in (source, source.replace("HK01", "HK02")):
+            groups = isp.definitions(isp.sections(isp.render(upstream, settings(), "🤖 AI"))["Proxy Group"])
+            self.assertEqual(groups["Claude"], "Claude = select, 🤖 AI, hidden=true")
+            self.assertTrue(groups["🤖 AI"].startswith("🤖 AI = select, Custom-ISP,"))
+
+    def test_process_module_alias_cannot_shadow_an_existing_policy(self):
+        source = SOURCE.replace("Claude", "🤖 AI")
+        cfg = settings()
+        cfg["default"] = cfg["nodes"][0]["name"] = "Claude"
+        for upstream, local in (
+            (SOURCE, settings()),  # An unrelated Claude group.
+            (source.replace("HK01", "Claude"), settings()),  # A subscription node.
+            (source, cfg),  # An ISP node.
+        ):
+            with self.subTest(upstream=upstream), self.assertRaisesRegex(isp.Error, "Claude"):
+                isp.render(upstream, local, "Provider")
+
     def test_source_update_preserves_new_order_and_nodes(self):
         new = SOURCE.replace("[Proxy Group]", "US02 = socks5, 192.0.2.3, 1080\n[Proxy Group]")
         new = new.replace("Claude = select, Provider, HK01, US01, DIRECT", "Claude = select, US02, HK01, Provider")

@@ -230,6 +230,8 @@ def render(source, cfg, target):
         raise Error("Subscription names conflict with custom ISP policies; do not use generated files as subscription sources")
     if target not in groups:
         raise Error("Target group not found in the original subscription; specify its name with --target-group")
+    if "Claude" in proxies or (target != "Claude" and ("Claude" in groups or "Claude" in owned)):
+        raise Error("Claude Process Routing needs the Claude policy name; an unrelated policy already uses it")
     original = groups[target]
     rhs = original.split("=", 1)[1]
     if not re.match(r"\s*select\s*,", rhs):
@@ -255,6 +257,8 @@ def render(source, cfg, target):
         + "".join(q("SSID:" + s) + "=DIRECT, " for s in ssids)
         + "hidden=true",
     ]
+    if target != "Claude":
+        extra_groups.append(f"Claude = select, {target}, hidden=true")
     parts["Proxy"] = "\n".join(proxy_lines) + "\n" + parts["Proxy"]
     parts["Proxy Group"] = "\n".join(extra_groups + group_lines) + "\n"
     priority_rules = "".join(f"DOMAIN-SUFFIX,{d},{target}\n" for d in dict.fromkeys(cfg["domains"]))
@@ -690,6 +694,45 @@ def module_title(text):
     return m.group(1) if m else ""
 
 
+def install_process_routing(surge, modules_dir=INSTALLED_MODULES):
+    asset = PANEL_ASSET_DIR.parent / "claude-process-routing.sgmodule"
+    content = asset.read_text()
+    title = module_title(content)
+    dest = modules_dir / asset.name
+    group = surge.data("policy-group", "get", "Claude").get("group", {})
+    if group.get("name") != "Claude":
+        raise Error("Activate a profile with the Claude routing group before installing")
+    modules = surge.data("module", "list")["modules"]
+    if any(m["name"] == title and m["path"] != str(dest) for m in modules):
+        raise Error("Another module already uses the Claude Process Routing name")
+    existed = dest.exists()
+    if existed and dest.read_text() != content:
+        raise Error("Existing process module differs; refusing to overwrite it")
+    enabled = surge.module_enabled(title)
+    try:
+        if not existed:
+            atomic_write(dest, content)
+        if not enabled:
+            surge.module_enable(title)
+        processes = ("/usr/local/bin/claude", "/Applications/Claude.app/Contents/MacOS/Claude")
+        for _ in range(20):  # Module enable schedules an asynchronous reload.
+            if surge.module_enabled(title) and all(
+                surge.data("rule", "match", "claude-routing.example", "process-path=" + path)
+                .get("rule-source", {}).get("module") == title for path in processes
+            ):
+                break
+            time.sleep(0.2)
+        else:
+            raise Error("Claude process rule did not win; check module precedence")
+    except (Exception, KeyboardInterrupt):
+        if not enabled and surge.module_enabled(title):
+            surge.module_disable(title)
+        if not existed:
+            dest.unlink(missing_ok=True)
+        raise
+    print("[isp] Claude Process Routing enabled; both process rules verified on the active profile")
+
+
 def find_existing_panel_module(modules_dir):
     modules_dir = Path(modules_dir)
     if not modules_dir.exists():
@@ -936,6 +979,7 @@ def main(argv=None):
     parser.add_argument("--config", type=Path, default=CONFIG)
     parser.add_argument("--state-dir", type=Path, default=STATE)
     sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("process-routing")
     sub.add_parser("configure")
     p = sub.add_parser("import-current"); p.add_argument("--profile", default="SNTP")
     p = sub.add_parser("setup"); p.add_argument("--profile", required=True); p.add_argument("--target-group", default="Claude")
@@ -946,6 +990,9 @@ def main(argv=None):
     p = sub.add_parser("restore"); p.add_argument("--backup", type=Path, required=True)
     args = parser.parse_args(argv); config = args.config.expanduser().absolute(); state = args.state_dir.expanduser().absolute()
     surge = Surge()
+    if args.command == "process-routing":
+        with lock(state): install_process_routing(surge)
+        return 0
     if args.command == "configure":
         with lock(state): configure(config)
         return 0

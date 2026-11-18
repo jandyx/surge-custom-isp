@@ -43,3 +43,7 @@ help: ## List ISP commands
 .PHONY: isp-auto
 isp-auto: ## Guided Proxy-Cheap API import, SOCKS5, Surge activation and exit check
 	@$(PYTHON) scripts/proxy-cheap-setup.py --config "$(ISP_CONFIG)" $(if $(filter 1,$(DRY_RUN)),--dry-run)
+
+.PHONY: isp-process-routing
+isp-process-routing: ## Install, enable and verify the optional Claude Desktop + CLI module
+	@$(PYTHON) scripts/surge-isp.py process-routing

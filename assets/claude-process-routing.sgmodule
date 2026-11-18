@@ -1,0 +1,7 @@
+#!name=Claude Process Routing
+#!desc=Route Claude Desktop and CLI traffic through the selected Claude policy.
+#!system=mac
+
+[Rule]
+PROCESS-NAME,claude,Claude
+PROCESS-NAME,/Applications/Claude.app/,Claude
