@@ -23,7 +23,7 @@ Claude → Custom-ISP → 选中的 ISP 节点 → Claude 服务
 
 ## 首次使用
 
-要求 Python 3.9+、Surge Mac 6.8+，无第三方 Python 依赖。不适用于 Clash YAML 或 Surge iOS 的后台自动维护。
+要求 Python 3.9+、Surge Mac 6.9+，无第三方 Python 依赖。不适用于 Clash YAML 或 Surge iOS 的后台自动维护。
 
 ```sh
 make isp                        # 交互录入，默认保存在仓库外
@@ -56,7 +56,7 @@ ISP 行通过 `Custom-ISP` 查询 IPPure，正常只显示「地区 | IP 类型 
 `https://api.anthropic.com/v1/models` 做无密钥连通性检查（401 是预期响应）。
 前者不是 Claude 官方的 IP 查询接口；它证明的是相同策略路径的公网出口。
 setup 后网络检测失败会非零退出并明确说明“配置已经应用，检测失败”，不因此回滚有效配置或换出口。
-非活动 Profile 会提示暂缓验证；选用后运行 `make isp-check`。dry-run 和定时 sync 不做这些外部探测。
+非活动 Profile 会提示暂缓验证；选用后运行 `make isp-check`。dry-run 和事件触发的 sync 不做这些外部探测。
 
 支持两个输入方式：隐藏粘贴 `socks5://用户名:密码@服务器:端口`（也支持 HTTP/HTTPS），
 或逐项输入协议、服务器、端口、用户名、密码。URL 中的 `@ : # /` 等凭据字符需百分号编码；
@@ -101,7 +101,7 @@ make isp-apply PROFILE=AnotherProvider TARGET_GROUP='🤖 Claude'
 ## 日常更新：不需要再 setup
 
 1. 继续在 Surge 使用原有的订阅更新功能。
-2. 用户级 `local.surge-isp.sync` 每 30 秒检查本机源文件和设置文件内容。
+2. 维护器常驻等待 macOS 文件事件，空闲时不定时扫描。旧定时任务可用 `make isp-watch` 原位升级，不会另外启动第二套服务。
 3. 内容有变化，重新合并最新订阅。节点、策略组和规则一起生成到单个原子替换的文件，避免半新半旧。
 4. `surge-cli --check` 验证候选；仅当前活动 Profile 需要热重载，非活动 Profile 只刷新文件。
 5. 日常更新不会强制重置手动选择或全局/规则模式；首次接入和修改默认 ISP 时才应用默认值。
@@ -120,8 +120,27 @@ make isp-apply PROFILE=AnotherProvider TARGET_GROUP='🤖 Claude'
 误报为订阅刷新。若希望有明确可见的原件，优先从导入的托管 `Provider.conf` 接入，而不是 URL linked profile。
 
 维护器运行需要 Mac 登录且唤醒；repo 移动或 Python 路径改变后运行 `make isp-watch`。
-源码路径直接指向本 checkout，拉取后下次任务会使用新代码。不是 iOS 后台服务。
+源码路径直接指向本 checkout；修改 watcher 代码后运行 `make isp-watch` 重启服务。不是 iOS 后台服务。
 手动诊断同步可运行 `make isp-sync`；观察 `~/.local/state/surge-isp/isp/sync.log`。
+
+### 谁在后台运行？
+
+```text
+机场订阅文件更新  --> macOS 文件通知 --------+
+                                          +--> Python 维护器检查 --> 仅在需要时合并、重载
+Surge 启动/重载   --> 模块中的 JS 写事件标记 --+
+```
+
+**关掉 Modules → ISP Event Sync 不等于停止自动同步。** 这个开关只关闭图中第二条路径。
+第一条仍然有效：即使订阅更新没有触发 Surge 重载，维护器也能收到文件变化通知。
+只常驻一个监听进程 `surge_isp_watch.py`；JS 是[事件脚本](https://manual.nssurge.com/scripting/event.html)，不是第二个常驻进程。
+
+要看实际能耗，先只读查询监听进程的 PID，再在「活动监视器」按 PID 找到对应的 Python，
+查看 CPU 和「能耗影响」。空闲读数不代表同步期间的峰值，也不是耗电瓦数。
+
+```sh
+launchctl print "gui/$(id -u)/local.surge-isp.sync" | awk '$1 == "pid" && $2 == "=" {print $3; exit}'
+```
 
 ## 安全、验证和恢复
 

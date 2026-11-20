@@ -64,7 +64,7 @@ class FakePanelSurge:
         self.script_argument = {}
         self.disabled_names = []
     def status(self):
-        return {"profile-path": self.profile, "mode": "rule", "core-version": 6008000}
+        return {"profile-path": self.profile, "mode": "rule", "core-version": 6009000}
     def check(self, path):
         self.checked.append(Path(path))
     def data(self, *args):

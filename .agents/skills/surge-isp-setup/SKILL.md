@@ -8,7 +8,7 @@ description: 用 Proxy-Cheap API Key 和 Secret 引导多选静态 ISP、切换 
 ## 定位项目与前提
 
 定位含 `scripts/proxy-cheap-setup.py`、`scripts/surge-isp.py`、`Makefile` 的项目根目录；不得硬编码用户名或工作区路径。先读 `docs/surge-isp.md`，API 细节见 `docs/proxy-cheap-api.md`。
-需要 macOS、Python 3.9+、curl、运行中的 Surge Mac 6.8+，以及已在 Surge 导入的标准托管订阅。用户还需要已购买且 ACTIVE 的静态 ISP；本工具不购买或续费代理。
+需要 macOS、Python 3.9+、curl、运行中的 Surge Mac 6.9+，以及已在 Surge 导入的标准托管订阅。用户还需要已购买且 ACTIVE 的静态 ISP；本工具不购买或续费代理。
 若没有合适订阅或 select 类型策略组，解释具体缺项，不创建虚构节点，不修改 DHCP/系统网关，也不要求用户提供订阅密码到聊天。
 
 ## 1. 获取两项 API 凭据

@@ -133,7 +133,7 @@ class WizardContracts(unittest.TestCase):
 
     def run_wizard(self,dry=False,confirm_effect=None,protocol="SOCKS5"):
         api=mock.Mock();api.proxies.return_value=[proxy(protocol=protocol)]
-        surge=mock.Mock();surge.status.return_value={'core-version':6008000}
+        surge=mock.Mock();surge.status.return_value={'core-version':6009000}
         with mock.patch.object(w.sys,'platform','darwin'),mock.patch.object(w.sys.stdin,'isatty',return_value=True),\
              mock.patch.object(w.shutil,'which',return_value='/usr/bin/curl'),mock.patch.object(w.isp,'Surge',return_value=surge),\
              mock.patch.object(w,'profile_choices',return_value=[(Path('Provider.conf'),self.binding,SOURCE,['Claude'])]),\

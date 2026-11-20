@@ -611,21 +611,75 @@ def configure(config):
 
 def install_watcher(state, config):
     if sys.platform != "darwin": raise Error("The automatic synchronizer requires macOS launchd")
-    script = str(Path(__file__).resolve())
+    script = str(Path(__file__).with_name("surge_isp_watch.py").resolve())
     agent = Path.home() / "Library/LaunchAgents" / (LABEL + ".plist")
     private_dir(state)
     log = state / "sync.log"
     if not log.exists(): atomic_write(log, "")
-    spec = {"Label": LABEL, "ProgramArguments": [sys.executable, script, "--config", str(config), "--state-dir", str(state), "sync"],
-            "RunAtLoad": True, "StartInterval": 30, "ProcessType": "Background",
+    spec = {"Label": LABEL, "ProgramArguments": [sys.executable, script, "--config", str(config), "--state-dir", str(state)],
+            "RunAtLoad": True, "KeepAlive": True, "ThrottleInterval": 30, "ProcessType": "Background",
             "StandardOutPath": str(log), "StandardErrorPath": str(log), "Umask": 63}
-    # Polling hashes catches atomic cache replacements without depending on WatchPaths event delivery.
-    atomic_write(agent, plistlib.dumps(spec).decode())
     domain = "gui/" + str(os.getuid())
-    subprocess.run(["/bin/launchctl", "bootout", domain + "/" + LABEL], capture_output=True)
-    r = subprocess.run(["/bin/launchctl", "bootstrap", domain, str(agent)], capture_output=True)
-    if r.returncode: raise Error("launchd installation failed; config files were retained. Check the current GUI login session")
-    print("[isp] Installed automatic sync: checks local subscription files every 30 seconds; no extra provider polling")
+    old = agent.read_text() if agent.exists() else None
+    running = subprocess.run(["/bin/launchctl", "print", domain + "/" + LABEL], capture_output=True).returncode == 0
+    if old:
+        private_dir(state / "watcher-backups")
+        atomic_write(state / "watcher-backups" / (str(time.time_ns()) + ".plist"), old)
+    install_sync_hook(Surge(), state)
+    try:
+        atomic_write(agent, plistlib.dumps(spec).decode())
+        subprocess.run(["/bin/launchctl", "bootout", domain + "/" + LABEL], capture_output=True)
+        r = subprocess.run(["/bin/launchctl", "bootstrap", domain, str(agent)], capture_output=True)
+        if r.returncode:
+            raise Error("Event sync agent could not start")
+    except BaseException:
+        subprocess.run(["/bin/launchctl", "bootout", domain + "/" + LABEL], capture_output=True)
+        if old is None:
+            agent.unlink(missing_ok=True)
+        else:
+            atomic_write(agent, old)
+            if running:
+                restored = subprocess.run(["/bin/launchctl", "bootstrap", domain, str(agent)], capture_output=True)
+                if restored.returncode:
+                    raise Error("Agent install and rollback failed; use the private watcher-backups to recover") from None
+        raise
+    print("[isp] Installed event sync: native file notifications + Surge hooks; no periodic polling")
+
+
+def install_sync_hook(surge, state):
+    if int(surge.status().get("core-version", 0)) < 6009000:
+        raise Error("Event sync requires Surge Mac 6.9+")
+    name = "ISP Event Sync"
+    hook = (Path(__file__).resolve().parents[1] / "assets/isp-sync-hook.js").read_text()
+    script = PROFILES / "isp-sync-hook.js"
+    old_hook = script.read_text() if script.exists() else None
+    if old_hook not in (None, hook):
+        raise Error("An existing event script differs; refusing to overwrite it")
+    dest = INSTALLED_MODULES / "isp-event-sync.sgmodule"
+    rendered = (f"#!name={name}\n[Script]\n"
+                f"isp-on-reload = type=event,event-name=profile-reloaded,script-path={quote_module_value(script)}\n"
+                f"isp-on-start = type=event,event-name=engine-started,script-path={quote_module_value(script)}\n")
+    old = dest.read_text() if dest.exists() else None
+    if old not in (None, rendered):
+        raise Error("An existing event module differs; refusing to overwrite it")
+    enabled = surge.module_enabled(name)
+    if old == rendered and old_hook == hook and enabled:
+        return
+    try:
+        if old_hook is None:
+            atomic_write(script, hook)
+        validate_panel_candidate(surge, state, rendered)
+        atomic_write(dest, rendered)
+        surge.module_enable(name)
+        surge.reload()
+    except BaseException:
+        if not enabled and surge.module_enabled(name):
+            surge.module_disable(name)
+        if old is None:
+            dest.unlink(missing_ok=True)
+        if old_hook is None:
+            script.unlink(missing_ok=True)
+        raise
 
 
 def restore_backup(path, state, surge, bindings):
@@ -1027,8 +1081,8 @@ def main(argv=None):
         cfg = validate_settings(load_json(config)); manager = Manager(state, surge)
         if args.command == "setup":
             profile = profile_path(args.profile)
-            if int(surge.status().get("core-version", 0)) < 6008000:
-                raise Error("Surge Mac 6.8+ is required for reliable config-value escaping")
+            if int(surge.status().get("core-version", 0)) < 6009000:
+                raise Error("Surge Mac 6.9+ is required for event sync")
             binding = bindings.get(str(profile))
             if binding is None:
                 binding = new_binding(profile, args.target_group, args.migrate_legacy)

@@ -200,7 +200,7 @@ class FakeSurge:
     def __init__(self, profile):
         self.profile = str(profile); self.fail_check = False; self.fail_reload = False
         self.reloads = 0; self.selections = {}; self.verified = []
-    def status(self): return {"profile-path": self.profile, "mode": "rule", "core-version": 6008000}
+    def status(self): return {"profile-path": self.profile, "mode": "rule", "core-version": 6009000}
     def check(self, path):
         if self.fail_check: raise isp.Error("invalid candidate")
     def environment(self): return {"ProxyGroupSelection": dict(self.selections), "AutoPolicyGroupOverride": {}, "ProxyMode": 2}
@@ -261,16 +261,58 @@ class InputAndServiceTests(unittest.TestCase):
     def test_launch_agent_uses_private_paths_without_credentials(self):
         with tempfile.TemporaryDirectory() as td:
             home = Path(td)
+            agent = home/'Library/LaunchAgents'/f'{isp.LABEL}.plist'
+            agent.parent.mkdir(parents=True)
+            agent.write_bytes(isp.plistlib.dumps({'Label': isp.LABEL, 'StartInterval': 30}))
             with mock.patch.object(Path, 'home', return_value=home), \
                  mock.patch.object(sys, 'platform', 'darwin'), \
+                 mock.patch.object(isp, 'install_sync_hook'), \
                  mock.patch.object(isp.subprocess, 'run', return_value=SimpleNamespace(returncode=0)):
                 isp.install_watcher(home/'state', home/'config.json')
-            agent = home/'Library/LaunchAgents'/f'{isp.LABEL}.plist'
             value = isp.plistlib.loads(agent.read_bytes())
-            self.assertEqual(value['StartInterval'], 30)
-            self.assertEqual(value['ProgramArguments'][-1], 'sync')
+            self.assertNotIn('StartInterval', value)
+            self.assertTrue(value['KeepAlive'])
+            self.assertTrue(value['ProgramArguments'][1].endswith('surge_isp_watch.py'))
             self.assertEqual(agent.stat().st_mode & 0o777, 0o600)
             self.assertEqual((home/'state/sync.log').stat().st_mode & 0o777, 0o600)
+
+    def test_watcher_install_restores_old_agent_after_bootstrap_failure(self):
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            agent = home/'Library/LaunchAgents'/f'{isp.LABEL}.plist'
+            agent.parent.mkdir(parents=True)
+            old = '<plist>old timer fixture</plist>'
+            agent.write_text(old)
+            responses = [0, 0, 1, 0, 0]  # print, bootout, failed bootstrap, bootout, restore
+            with mock.patch.object(Path, 'home', return_value=home), \
+                 mock.patch.object(sys, 'platform', 'darwin'), \
+                 mock.patch.object(isp, 'install_sync_hook'), \
+                 mock.patch.object(isp.subprocess, 'run', side_effect=[SimpleNamespace(returncode=n) for n in responses]), \
+                 self.assertRaises(isp.Error):
+                isp.install_watcher(home/'state', home/'config.json')
+            self.assertEqual(agent.read_text(), old)
+
+    def test_event_hook_installs_only_one_menu_item(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            surge = mock.Mock()
+            surge.status.return_value = {'core-version': 6009000}
+            surge.module_enabled.return_value = False
+            with mock.patch.object(isp, 'INSTALLED_MODULES', root/'modules'), mock.patch.object(isp, 'PROFILES', root/'profiles'), mock.patch.object(isp, 'validate_panel_candidate'):
+                isp.install_sync_hook(surge, root/'state')
+            module, = (root/'modules').iterdir()
+            self.assertEqual(module.name, 'isp-event-sync.sgmodule')
+            self.assertIn(str(root/'profiles/isp-sync-hook.js'), module.read_text())
+            self.assertIn('isp-sync-event', (root/'profiles/isp-sync-hook.js').read_text())
+            surge.module_enable.assert_called_once_with('ISP Event Sync')
+
+    def test_event_hook_rejects_old_surge_before_writing(self):
+        surge = mock.Mock()
+        surge.status.return_value = {'core-version': 6008000}
+        with mock.patch.object(isp, 'atomic_write') as write, self.assertRaises(isp.Error):
+            isp.install_sync_hook(surge, Path('/unused'))
+        write.assert_not_called()
+        surge.module_enable.assert_not_called()
 
     def test_probe_validates_exit_ip_without_switching_policies(self):
         surge = mock.Mock()

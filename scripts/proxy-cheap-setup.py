@@ -217,10 +217,10 @@ def wizard(config, state, dry_run=False):
     if not sys.stdin.isatty():
         raise Error('Run this wizard in a local interactive terminal')
     if sys.platform != 'darwin' or not shutil.which('curl'):
-        raise Error('macOS with curl and Surge Mac 6.8+ is required')
+        raise Error('macOS with curl and Surge Mac 6.9+ is required')
     surge = isp.Surge()
-    if int(surge.status().get('core-version', 0)) < 6008000:
-        raise Error('Surge Mac 6.8+ is required')
+    if int(surge.status().get('core-version', 0)) < 6009000:
+        raise Error('Surge Mac 6.9+ is required')
     before = config.read_bytes() if config.exists() else None
     cfg = isp.validate_settings(isp.load_json(config)) if before is not None else isp.defaults()
     bf = state / 'bindings.json'; bindings = isp.load_json(bf) if bf.exists() else {}

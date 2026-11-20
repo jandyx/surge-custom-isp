@@ -1,7 +1,7 @@
 # surge-custom-isp
 
 面向个人用户的 Surge Mac ISP 出口配置工具，从原项目独立提取。
-仅需 **macOS、Python 3.9+、Surge Mac 6.8+**，Python 无第三方依赖。
+仅需 **macOS、Python 3.9+、Surge Mac 6.9+**，Python 无第三方依赖。
 
 ## Proxy-Cheap 一条龙（推荐入口）
 
