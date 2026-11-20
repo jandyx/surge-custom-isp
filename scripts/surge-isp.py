@@ -243,7 +243,9 @@ def render(source, cfg, target):
     replaced = re.sub(r"^(\s*select\s*,)", r"\1 " + GROUP + ",", rhs, count=1)
     group_lines = parts["Proxy Group"].splitlines()
     group_lines[group_lines.index(original)] = original.split("=", 1)[0] + "=" + replaced
-    nodes = sorted(cfg["nodes"], key=lambda n: n["name"] != cfg["default"])
+    # Keep configured order: the default is applied with a policy selection, and
+    # reordering here would rewrite the profile every time the user switches.
+    nodes = cfg["nodes"]
     proxy_lines = []
     for n in nodes:
         proxy_lines.append(f'{n["name"]} = {n["protocol"]}, {q(n["server"])}, {n["port"]}, '
@@ -951,6 +953,22 @@ def selected_path(surge, cfg, policy):
     return path
 
 
+def adopt_selection(surge, cfg, config):
+    """Follow a manual Custom-ISP switch so the saved default stops fighting the UI."""
+    try:
+        selected = surge.data("policy-group", "get", GROUP).get("group", {}).get("selected")
+    except (Error, AttributeError):
+        return False
+    if not isinstance(selected, str) or selected == cfg["default"]:
+        return False
+    if selected not in {n["name"] for n in cfg["nodes"]}:
+        return False
+    cfg["default"] = selected
+    save_json(config, cfg)
+    print(f"[isp] Adopted the runtime selection as the default ISP: {selected}")
+    return True
+
+
 def check_connectivity(surge, cfg, policy=GROUP, *, use_outbound=False, resolve=True, label="ISP exit IP"):
     # Rule mode: explicitly probe the chosen policy. Global/direct mode: let Surge route both
     # destinations normally, rather than falsely claiming a forced ISP probe is the active exit.
@@ -1056,6 +1074,7 @@ def main(argv=None):
     if args.command == "watch-install": install_watcher(state, config); return 0
     if args.command == "check":
         cfg = validate_settings(load_json(config))
+        adopt_selection(surge, cfg, config)
         if args.isp_only: check_connectivity(surge, cfg)
         else:
             bindings = load_json(state / "bindings.json")
@@ -1096,6 +1115,7 @@ def main(argv=None):
                 if str(profile) != binding["profile"]:
                     print("[isp] Original managed profile preserved; select this local entry in Surge once: " + Path(binding["profile"]).name)
         elif args.command == "sync":
+            adopt_selection(surge, cfg, config)
             previous = copy.deepcopy(bindings)
             errors = []
             for binding in bindings.values():

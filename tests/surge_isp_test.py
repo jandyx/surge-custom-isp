@@ -355,6 +355,27 @@ class InputAndServiceTests(unittest.TestCase):
         ]
         self.assertEqual(isp.selected_path(surge, settings(), 'Claude'), ['Claude', isp.GROUP, 'ISP-Example'])
 
+    def test_manual_group_switch_becomes_the_saved_default(self):
+        cfg = settings()
+        cfg['nodes'].append({**cfg['nodes'][0], 'name': 'ISP-Other',
+                             'server': '192.0.2.60', 'expected_ip': '192.0.2.60'})
+        surge = mock.Mock()
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td)/'isp.json'
+            surge.data.return_value = {'group': {'selected': 'ISP-Other'}}
+            with redirect_stdout(io.StringIO()):
+                self.assertTrue(isp.adopt_selection(surge, cfg, path))
+            self.assertEqual(json.loads(path.read_text())['default'], 'ISP-Other')
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            path.write_text('{}')
+            self.assertFalse(isp.adopt_selection(surge, cfg, path))
+            self.assertEqual(path.read_text(), '{}')
+            surge.data.return_value = {'group': {'selected': 'US01'}}
+            self.assertFalse(isp.adopt_selection(surge, settings(), path))
+            surge.data.side_effect = isp.Error('unavailable')
+            self.assertFalse(isp.adopt_selection(surge, settings(), path))
+            self.assertEqual(path.read_text(), '{}')
+
     def test_global_mode_checks_actual_global_route_not_forced_claude_policy(self):
         surge = mock.Mock()
         surge.status.return_value = {'profile-path': '/profile', 'mode': 'proxy', 'global-policy': 'HK01'}
