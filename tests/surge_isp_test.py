@@ -419,6 +419,54 @@ class TransactionTests(unittest.TestCase):
         self.cli = FakeSurge(self.main); self.manager = isp.Manager(self.root / "state", self.cli)
         self.binding = {"profile": str(self.main), "source": str(self.source), "generated": str(self.p / "generated.dconf"), "target": "Claude", "enabled": True}
 
+    def test_refresh_keeps_named_rulesets_reachable_without_replacing_local_rules(self):
+        self.main.write_text(MAIN + "[Ruleset Local]\nDOMAIN,local.example\n")
+        rule = "[Ruleset Inline001]\nDOMAIN,stream.example\n"
+        self.source.write_text(SOURCE + rule + "[Ruleset Local]\nDOMAIN,provider.example\n")
+        self.assertTrue(self.manager.apply(self.binding, settings(), initialize=True))
+        parts = isp.sections(self.main.read_text())
+        self.assertEqual(parts["Ruleset Inline001"].strip(), "#!include generated.dconf")
+        self.assertEqual(parts["Ruleset Local"].strip(), "DOMAIN,local.example")
+        self.assertFalse(self.manager.apply(self.binding, settings()))
+        self.source.write_text(SOURCE + rule.replace("Inline001", "Inline002"))
+        self.assertTrue(self.manager.apply(self.binding, settings()))
+        parts = isp.sections(self.main.read_text())
+        self.assertNotIn("Ruleset Inline001", parts)
+        self.assertEqual(parts["Ruleset Inline002"].strip(), "#!include generated.dconf")
+        self.assertIn("Ruleset Local", parts)
+
+    def test_detached_rules_use_real_files_and_keep_old_contents_for_rollback(self):
+        rules = "RULE-SET,Movies,Provider,no-resolve\nRULE-SET,Local,DIRECT\nRULE-SET,LAN,DIRECT\nFINAL,Provider"
+        body = "DOMAIN,stream.example\n"
+        self.source.write_text(SOURCE.replace("FINAL,Provider", rules)
+                               + "[Ruleset Movies]\n" + body + "[Ruleset Local]\nDOMAIN,upstream.example\n"
+                               + "[Ruleset LAN]\nDOMAIN,provider-lan.example\n")
+        self.main.write_text(MAIN + "[Ruleset Local]\nDOMAIN,local.example\n")
+        generated = Path(self.binding["generated"])
+        folder = generated.parent / "isp-rulesets"
+        self.manager.apply(self.binding, settings(), initialize=True, dry_run=True)
+        self.assertFalse(folder.exists())
+        self.manager.apply(self.binding, settings(), initialize=True)
+        first, = folder.glob("*.list")
+        original = first.read_text()
+        self.assertEqual(original.rstrip("\n"), body.rstrip("\n"))
+        self.assertIn(f"RULE-SET,isp-rulesets/{first.name},Provider,no-resolve", generated.read_text())
+        self.assertIn("RULE-SET,Local,DIRECT", generated.read_text())
+        self.assertIn("RULE-SET,LAN,DIRECT", generated.read_text())
+        self.source.write_text(self.source.read_text().replace("stream.example", "changed.example"))
+        self.manager.apply(self.binding, settings())
+        self.assertEqual(first.read_text(), original)
+        self.assertNotIn(first.name, generated.read_text())
+        current, = set(folder.glob("*.list")) - {first}
+        self.assertEqual(current.read_text(), original.replace("stream.example", "changed.example"))
+        current.unlink()
+        self.manager.apply(self.binding, settings())
+        self.assertTrue(current.exists())
+        current.write_text("user edit")
+        with self.assertRaisesRegex(isp.Error, "modified"):
+            self.manager.apply(self.binding, settings())
+        self.assertEqual(current.read_text(), "user edit")
+
     def test_idempotence_and_automatic_native_source_refresh(self):
         self.assertTrue(self.manager.apply(self.binding, settings(), initialize=True))
         self.assertFalse(self.manager.apply(self.binding, settings()))

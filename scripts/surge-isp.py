@@ -295,6 +295,80 @@ def patch_profile(text, generated, legacy=False, source_name=None):
     return text
 
 
+def link_inline_rulesets(entry, rendered, generated, source_name):
+    # Section includes are not transitive: [Rule] does not import [Ruleset Name].
+    headers = re.findall(r"^\[(Ruleset [^\]\r\n]+)\]$", rendered, re.I | re.M)
+    names = {key.casefold(): key for key in headers if key.casefold() != "ruleset *"}
+    declared = sections(entry)
+    owned = {f"#!include {generated}", f"#!include {source_name}"}
+    missing = dict(names)
+    for key, body in declared.items():
+        name = key.casefold()
+        if not name.startswith("ruleset ") or name == "ruleset *":
+            continue
+        if name in names:
+            missing.pop(name, None)  # An explicit local definition takes precedence.
+        elif body.strip() in owned:
+            pattern = r"(?ms)^\[" + re.escape(key) + r"\][ \t]*\n.*?(?=^\[|\Z)"
+            entry = re.sub(pattern, "", entry, count=1)
+    if not missing:
+        return entry
+    wildcard = next((body for key, body in declared.items() if key.casefold() == "ruleset *"), None)
+    if wildcard is not None:
+        if wildcard.strip() not in owned:
+            raise Error("Cannot merge subscription rulesets with an unmanaged wildcard include")
+        return entry
+    # Per-name links also work on Surge Mac 6.8 and can coexist with local overrides.
+    return entry.rstrip("\n") + "\n\n" + "\n".join(
+        f"[{key}]\n#!include {generated}\n" for key in missing.values())
+
+
+def file_rulesets(entry, rendered, generated, source_name):
+    # Detached rules can leave bare set names listed as missing local resources.
+    # Use real, immutable file paths for flat sets; old snapshots remain usable for rollback.
+    parts = sections(rendered)
+    local = {key.casefold(): body.strip() for key, body in sections(entry).items()}
+    owned = {f"#!include {generated}", f"#!include {source_name}"}
+    files = {}
+    replacements = {}
+    for key, body in parts.items():
+        if not key.casefold().startswith("ruleset ") or key.casefold() == "ruleset *":
+            continue
+        if key.casefold() in local and local[key.casefold()] not in owned:
+            continue  # Never bypass the user's own definition.
+        if re.search(r"(?im)^\s*(?:#!include|(?:RULE-SET|DOMAIN-SET),)", body):
+            continue  # Nested or detached sets need their native section context.
+        name = key.split(" ", 1)[1]
+        if name.upper() in {"LAN", "SYSTEM"}:
+            continue  # Surge resolves built-in sets before looking up section names.
+        replacements[name] = ("isp-rulesets/" + digest(body) + ".list", body)
+
+    def replace(match):
+        item = replacements.get(match[2])
+        if item is None:
+            return match[0]
+        path, body = item
+        files[path] = body
+        return match[1] + path
+
+    rules = re.sub(r"(?im)^([ \t]*RULE-SET,)([^,\r\n]+)(?=,)", replace, parts["Rule"])
+    if files:
+        rendered = re.sub(r"(?ms)(^\[Rule\]\n).*?(?=^\[|\Z)",
+                          lambda m: m[1] + rules, rendered, count=1)
+    return rendered, files
+
+
+def ensure_ruleset_files(folder, files):
+    if files:
+        private_dir(folder / "isp-rulesets")
+    for relative, body in files.items():
+        path = folder / relative
+        if path.is_symlink() or (path.exists() and path.read_text() != body):
+            raise Error("A generated ruleset file was modified; refusing to overwrite it")
+        if not path.exists():
+            atomic_write(path, body)
+
+
 def check_candidate(surge, profile, generated, main, rendered):
     """Validate without ever writing a file that the active profile references."""
     fd, stage_name = tempfile.mkstemp(prefix=".isp-stage-", suffix=".dconf", dir=profile.parent)
@@ -446,10 +520,13 @@ class Manager:
             raise Error("The generated file was modified externally; refusing to overwrite it")
         rendered = render(raw, cfg, binding["target"])
         main = patch_profile(text, generated.name, binding.get("legacy", False), source.name)
+        rendered, ruleset_files = file_rulesets(main, rendered, generated.name, source.name)
+        main = link_inline_rulesets(main, rendered, generated.name, source.name)
         fingerprint = digest(raw + json.dumps(cfg, sort_keys=True, ensure_ascii=False) + rendered + main)
         if dry_run:
             print(f"[isp] [dry-run] {profile.name}: prepend {GROUP} to {binding['target']}; ISP nodes={len(cfg['nodes'])}; no writes or reload")
             return False
+        ensure_ruleset_files(generated.parent, ruleset_files)
         if not initialize and binding.get("fingerprint") == fingerprint and generated.exists() and main == text:
             return self.activate_pending(binding, cfg)
         if generated.exists() and generated.read_text() == rendered and main == text and not initialize:
