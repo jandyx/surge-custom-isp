@@ -8,7 +8,6 @@ and is not proof of account access, residential service, or real conversation us
 const DEFAULT_TITLE = "ISP";
 const DEFAULT_ICON = "antenna.radiowaves.left.and.right";
 const DEFAULT_ERR_ICON = "xmark.seal.fill";
-const DEFAULT_COLOR = "#4CAF50";
 const DEFAULT_ERR_COLOR = "#D65C51";
 
 const args = parseArgs(typeof $argument === "undefined" ? "" : $argument);
@@ -17,7 +16,7 @@ const policy = args.policy || "";
 const expectedIp = args["expected-ip"] || args.expected_ip || "";
 const icon = args.icon || DEFAULT_ICON;
 const iconerr = args.iconerr || DEFAULT_ERR_ICON;
-const iconColor = args["icon-color"] || DEFAULT_COLOR;
+const iconColor = args["icon-color"];
 const iconerrColor = args["iconerr-color"] || DEFAULT_ERR_COLOR;
 
 function parseArgs(raw) {
@@ -68,12 +67,12 @@ function fail(content, detail) {
   });
 }
 
-function ok(content) {
+function ok(content, color) {
   $done({
     title: title,
     content: content,
     icon: icon,
-    "icon-color": iconColor
+    "icon-color": iconColor || color
   });
 }
 
@@ -94,10 +93,12 @@ function get(url, callback) {
   $httpClient.get({ url: url, timeout: 8, policy: policy, "auto-cookie": false }, callback);
 }
 
-function riskText(score) {
-  if (typeof score !== "number" || !isFinite(score) || score < 0 || score > 100) return "未知";
-  const label = score > 70 ? "极高" : score > 40 ? "高" : score > 15 ? "中" : "低";
-  return label + "（" + Math.round(score) + "/100）";
+function riskRating(score) {
+  if (!Number.isFinite(score) || score < 0 || score > 100) return { label: "未知", color: "#8E8E93" };
+  if (score > 70) return { label: "极高", color: "#F44336" };
+  if (score > 40) return { label: "高", color: "#F44336" };
+  if (score > 15) return { label: "中", color: "#FF9800" };
+  return { label: "低", color: "#4CAF50" };
 }
 
 function typeText(info) {
@@ -112,9 +113,12 @@ function compact(info) {
   const ip = validIpv4(info && info.ip);
   const flag = countryFlag(info && info.countryCode);
   if (!ip || !flag) return null;
+  const rating = riskRating(info.fraudScore);
+  const risk = rating.label === "未知" ? rating.label : rating.label + "（" + Math.round(info.fraudScore) + "/100）";
   return {
     ip: ip,
-    content: flag + " | " + typeText(info) + " | 风险：" + riskText(info.fraudScore) + "\n" + ip
+    color: rating.color,
+    content: flag + " | " + typeText(info) + " | 风险：" + risk + "\n" + ip
   };
 }
 
@@ -122,9 +126,10 @@ function expectedMismatch(ip) {
   return expectedIp && ip !== expectedIp;
 }
 
-function anthroThenFinish(ip, content) {
+function anthroThenFinish(result) {
   get("https://api.anthropic.com/v1/models", function(error, response) {
     const status = statusCode(response);
+    const ip = result.ip;
     if (error || (status !== 401 && status !== 200)) {
       fail("Anthropic 连通性异常", ip);
       return;
@@ -133,7 +138,7 @@ function anthroThenFinish(ip, content) {
       fail("出口 IP 与预期不一致", "实际 " + ip + " / 预期 " + expectedIp);
       return;
     }
-    ok(content);
+    ok(result.content, result.color);
   });
 }
 
@@ -167,7 +172,7 @@ if (!policyExists(policy)) {
         fallbackIp("信息查询失败");
         return;
       }
-      anthroThenFinish(result.ip, result.content);
+      anthroThenFinish(result);
     } catch (e) {
       fallbackIp("信息查询失败");
     }
