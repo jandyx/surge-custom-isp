@@ -205,6 +205,8 @@ python3 -m unittest discover -s tests -p '*_test.py'
 跟随 Claude 组，即使请求的是非 Anthropic 域名。取消后恢复原有规则，
 不是强制直连。只作用于规则模式下已进入 Surge 的新连接，不接管终端或包外子进程。
 
+同一开关还会为 `claude.ai`、`claude.com`、`anthropic.com`、`claudeusercontent.com` 及其子域名指定 Google 加密 DNS（`https://8.8.8.8/dns-query`）。这是按域名而非按进程选择的本地解析器；其他域名沿用原配置，代理服务器的远端解析不受影响。可用 `surge-cli dns trace api.anthropic.com` 查看本地查询的实际应答服务器。
+
 模块独立于机场订阅，日常同步不会重新开启它。生成的配置若绑定了不同名的目标组，
 用隐藏的单成员 `Claude` 组映射到该组；同名冲突时拒绝生成。切换到未接入、
 没有 `Claude` 组的原始 Profile 前应先关闭模块。

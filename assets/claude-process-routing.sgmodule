@@ -1,7 +1,17 @@
 #!name=Claude Process Routing
-#!desc=Route Claude Desktop and CLI traffic through the selected Claude policy.
+#!desc=Route Claude Desktop and CLI traffic through the Claude policy; use Google DoH for local lookups of Claude domains.
 #!system=mac
 
 [Rule]
 PROCESS-NAME,claude,Claude
 PROCESS-NAME,/Applications/Claude.app/,Claude
+
+[Host]
+claude.ai = server:https://8.8.8.8/dns-query
+*.claude.ai = server:https://8.8.8.8/dns-query
+claude.com = server:https://8.8.8.8/dns-query
+*.claude.com = server:https://8.8.8.8/dns-query
+anthropic.com = server:https://8.8.8.8/dns-query
+*.anthropic.com = server:https://8.8.8.8/dns-query
+claudeusercontent.com = server:https://8.8.8.8/dns-query
+*.claudeusercontent.com = server:https://8.8.8.8/dns-query
